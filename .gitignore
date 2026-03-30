@@ -1,0 +1,20 @@
+# Dependencies
+/vendor/bundle
+.bundle/
+
+# Environment Variables
+.env
+
+# Logs
+*.log
+log/
+
+# Temporary Files
+tmp/
+*.swp
+.DS_Store
+
+# Ruby Specific
+.ruby-lsp/
+.ruby-version
+.ruby-gemset

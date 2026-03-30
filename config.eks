@@ -1,0 +1,548 @@
+require_relative 'lib/database'
+require_relative 'models/user'
+require_relative 'models/post'
+require_relative 'models/comment'
+require_relative 'models/category'
+require 'cloudinary'
+require 'kramdown'
+require_relative 'lib/csrf_middleware'
+
+# Configure Cloudinary if URL is present in .env
+if ENV['CLOUDINARY_URL']
+  Cloudinary.config_from_url(ENV['CLOUDINARY_URL'])
+end
+
+# Monkey-patch to support layout rendering (not supported in Eks-Cent v3.0.0)
+class EksCent::Response
+  attr_accessor :env
+  
+  # Otomatis deteksi mode produksi untuk keamanan cookie
+  alias_method :original_set_cookie, :set_cookie
+  def set_cookie(name, value, options = {})
+    if ENV['APP_ENV'] == 'production'
+      options[:secure] = true
+      options[:samesite] = 'Lax'
+    end
+    original_set_cookie(name, value, options)
+  end
+
+  def render(template_name, locals = {})
+    require 'erb'
+    template_path = File.join('views', "#{template_name}.erb")
+    layout_path = File.join('views', "layout.erb")
+    
+    # 1. Prepare rendering context
+    context = Object.new
+    context.extend(ERB::Util)
+    locals.each { |k, v| context.instance_variable_set("@#{k}", v) }
+    
+    # 2. Add properties for helpers
+    # Use request from locals to get env
+    req_obj = locals[:req]
+    env_ref = req_obj ? req_obj.env : nil
+    
+    # Support helpers in templates
+    if locals[:session]
+      session_obj = locals[:session]
+      context.define_singleton_method(:session) { session_obj }
+      context.define_singleton_method(:csrf_tag) do
+        # Try to get from actual rack session in env if possible, with safety check
+        s = session_obj
+        if env_ref && env_ref['rack.session']
+          s = env_ref['rack.session']
+        elsif env_ref && env_ref['eks_cent.session']
+          s = env_ref['eks_cent.session']
+        end
+        token = s['csrf_token']
+        "<input type='hidden' name='csrf_token' value='#{token}'>"
+      end
+      
+      # Helper for absolute URLs (handles HTTP/HTTPS dynamically)
+      context.define_singleton_method(:full_url) do |path = ""|
+        # Use simple locals/env detection
+        env = env_ref || {}
+        scheme = env['rack.url_scheme'] || 'http'
+        host = env['HTTP_HOST'] || 'localhost:3000'
+        
+        # Ensure path starts with /
+        clean_path = path.to_s.start_with?('/') ? path : "/#{path}"
+        "#{scheme}://#{host}#{clean_path}"
+      end
+    end
+    
+    def context.h(s); html_escape(s); end
+    
+    def context.markdown(text)
+      return "" if text.nil?
+      # Ensure text is stripped of leading/trailing space for better header parsing
+      clean_text = text.to_s.strip
+      
+      # Use Kramdown with GFM and enable hard line breaks
+      Kramdown::Document.new(clean_text, 
+        input: 'GFM', 
+        hard_line_breaks: true
+      ).to_html
+    end
+
+    def context.reading_time(content)
+      words_per_minute = 200
+      words = (content || "").split.size
+      minutes = (words.to_f / words_per_minute).ceil
+      [minutes, 1].max
+    end
+
+    # 2. Render main template
+    template_content = File.read(template_path)
+    main_output = ERB.new(template_content).result(context.instance_eval { binding })
+    
+    # 3. Render layout with main output
+    if File.file?(layout_path)
+      context.instance_variable_set("@rendered_content", main_output)
+      layout_content = File.read(layout_path)
+      final_output = ERB.new(layout_content).result(context.instance_eval { binding })
+      self.headers['Content-Type'] = 'text/html; charset=utf-8'
+      @body = [final_output]
+    else
+      @body << main_output
+    end
+  end
+end
+
+# Monkey-patch to support multipart/form-data parsing (not supported in Eks-Cent v3.0.0)
+class EksCent::Request
+  def params
+    return @params if @params
+    
+    # Use standard Rack::Request for robust parsing including multipart/uploads
+    rack_req = Rack::Request.new(@env)
+    @params = rack_req.params.dup
+    
+    # Preserve Eks-Cent's router params
+    if @env['eks_cent.router_params']
+      @params.merge!(@env['eks_cent.router_params'])
+    end
+    
+    @params
+  end
+end
+
+# Monkey-patch Router to handle global 404 with custom render
+class EksCent::Router
+  alias_method :original_call, :call
+  def call(env)
+    req = EksCent::Request.new(env)
+    route = find_route(req)
+    
+    if route
+      original_call(env)
+    else
+      # Global 404 handling
+      res = EksCent::Response.new([], 404)
+      # We need to manually call render since we are outside the normal flow
+      res.render '404', title: "Not Found", req: req, session: (env['rack.session'] || {})
+      res.finish
+    end
+  end
+end
+
+# Initialize Database
+Database.setup # Ensure tables (including comments) exist
+
+# use EksCent::Middleware::ContentSecurity
+use EksCent::Middleware::Session
+use EksCent::Middleware::CSRF
+use EksCent::Middleware::Logger
+use EksCent::Middleware::ShowExceptions
+use EksCent::Middleware::Static
+use Rack::Deflater # GZIP Compression for Production
+
+router = EksCent::Router.new do
+  # --- Public Routes ---
+
+  get '/' do |req, res|
+    @flash_message = req.session.delete('flash_message')
+    
+    # Pagination & Search Params
+    current_page = [req.params['page'].to_i, 1].max
+    search_query = req.params['q']
+    category_id  = req.params['category_id']
+    per_page     = 6
+    
+    @posts      = Post.paginate(page: current_page, per_page: per_page, search: search_query, category_id: category_id)
+    @categories = Category.all
+    total_posts = Post.count(search: search_query, category_id: category_id)
+    total_pages = (total_posts.to_f / per_page).ceil
+    
+    res.render 'index', 
+               posts: @posts, 
+               categories: @categories,
+               title: "Home", 
+               req: req,
+               session: req.session,
+               current_page: current_page,
+               total_pages: total_pages,
+               total_posts: total_posts,
+               search_query: search_query,
+               category_id: category_id,
+               flash_message: @flash_message
+  end
+
+  get '/post/:id' do |req, res|
+    @flash_message = req.session.delete('flash_message')
+    @post = Post.find(req.params['id'])
+    if @post
+      @comments = Comment.for_post(req.params['id'])
+      res.render 'show', post: @post, comments: @comments, title: @post.title, req: req, session: req.session, flash_message: @flash_message
+    else
+      res.status = 404
+      res.render '404', title: "Not Found", req: req, session: req.session
+    end
+  end
+
+  post '/post/:id/comments' do |req, res|
+    comment = Comment.new(
+      'post_id' => req.params['id'],
+      'name'    => req.params['name'],
+      'content' => req.params['content']
+    )
+    if comment.save
+      req.session['flash_message'] = "Komentar berhasil ditambahkan!"
+    else
+      req.session['flash_message'] = "Gagal menambahkan komentar."
+    end
+    res.redirect "/post/#{req.params['id']}"
+  end
+
+  # --- Admin Auth ---
+
+  get '/admin/login' do |req, res|
+    @flash_message = req.session.delete('flash_message')
+    if req.session['user_id']
+      res.redirect '/admin/dashboard'
+    else
+      res.render 'admin/login', title: "Admin Login", error: req.params['error'], req: req, session: req.session, flash_message: @flash_message
+    end
+  end
+
+  post '/admin/login' do |req, res|
+    user = User.authenticate(req.params['username'], req.params['password'])
+    if user
+      req.session['user_id'] = user.id
+      req.session['flash_message'] = "Selamat datang kembali, #{user.username}!"
+      res.redirect '/admin/dashboard'
+    else
+      res.redirect '/admin/login?error=Invalid+credentials'
+    end
+  end
+
+  get '/admin/logout' do |req, res|
+    req.session.clear
+    res.redirect '/'
+  end
+
+  # --- Search Reset ---
+
+  get '/reset-search' do |req, res|
+    req.session['flash_message'] = "Pencarian telah direset. Menampilkan semua materi."
+    if req.params['admin'] == 'true'
+      res.redirect '/admin/dashboard'
+    else
+      res.redirect '/'
+    end
+  end
+
+  # --- SEO Routes ---
+
+  get '/robots.txt' do |req, res|
+    scheme = req.env['rack.url_scheme'] || 'http'
+    res.headers['Content-Type'] = 'text/plain'
+    res.write "User-agent: *\nAllow: /\nSitemap: #{scheme}://#{req.env['HTTP_HOST']}/sitemap.xml"
+  end
+
+  get '/sitemap.xml' do |req, res|
+    scheme = req.env['rack.url_scheme'] || 'http'
+    res.headers['Content-Type'] = 'application/xml'
+    posts = Post.all
+    xml = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+    xml += "<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n"
+    xml += "  <url><loc>#{scheme}://#{req.env['HTTP_HOST']}/</loc><priority>1.0</priority></url>\n"
+    posts.each do |post|
+      xml += "  <url><loc>#{scheme}://#{req.env['HTTP_HOST']}/post/#{post.id}</loc><priority>0.8</priority></url>\n"
+    end
+    xml += "</urlset>"
+    res.write xml
+  end
+
+  # --- Admin Protected Routes ---
+
+  namespace '/admin' do
+    # (before filters are not supported in this version, using manual checks)
+
+    get '/dashboard' do |req, res|
+      unless req.session['user_id']
+        next res.redirect('/admin/login')
+      end
+      @flash_message = req.session.delete('flash_message')
+      
+      # Pagination & Search Params
+      current_page = [req.params['page'].to_i, 1].max
+      search_query = req.params['q']
+      per_page     = 10
+      
+      @posts      = Post.paginate(page: current_page, per_page: per_page, search: search_query)
+      total_posts = Post.count(search: search_query)
+      total_pages = (total_posts.to_f / per_page).ceil
+      
+      res.render 'admin/dashboard', 
+                 posts: @posts, 
+                 title: "Dashboard", 
+                 req: req,
+                 session: req.session,
+                 current_page: current_page,
+                 total_pages: total_pages,
+                 total_posts: total_posts,
+                 search_query: search_query,
+                 flash_message: @flash_message
+    end
+
+    get '/posts/new' do |req, res|
+      unless req.session['user_id']
+        next res.redirect('/admin/login')
+      end
+      @flash_message = req.session.delete('flash_message')
+      @post = Post.new({'title' => '', 'content' => ''})
+      @categories = Category.all
+      res.render 'admin/form', post: @post, categories: @categories, title: "New Post", req: req, session: req.session, flash_message: @flash_message
+    end
+
+    post '/posts' do |req, res|
+      unless req.session['user_id']
+        next res.redirect('/admin/login')
+      end
+      
+      # Handle Cloudinary Upload
+      thumbnail_url = nil
+      thumbnail_public_id = nil
+      if req.params['thumbnail'] && req.params['thumbnail'][:tempfile]
+        begin
+          upload = Cloudinary::Uploader.upload(req.params['thumbnail'][:tempfile].path)
+          thumbnail_url = upload['secure_url']
+          thumbnail_public_id = upload['public_id']
+        rescue => e
+          puts "Cloudinary Upload Error: #{e.message}"
+        end
+      end
+
+      @post = Post.new({
+        'title' => req.params['title'],
+        'content' => req.params['content'],
+        'thumbnail_url' => thumbnail_url,
+        'thumbnail_public_id' => thumbnail_public_id,
+        'author_id' => req.session['user_id'],
+        'category_id' => req.params['category_id']
+      })
+      @post.save
+      req.session['flash_message'] = "Post '#{@post.title}' berhasil dipublikasikan!"
+      res.redirect '/admin/dashboard'
+    end
+
+    get '/posts/:id/edit' do |req, res|
+      unless req.session['user_id']
+        next res.redirect('/admin/login')
+      end
+      @flash_message = req.session.delete('flash_message')
+      @post = Post.find(req.params['id'])
+      @categories = Category.all
+      res.render 'admin/form', post: @post, categories: @categories, title: "Edit Post", req: req, session: req.session, flash_message: @flash_message
+    end
+
+    post '/posts/:id' do |req, res|
+      unless req.session['user_id']
+        next res.redirect('/admin/login')
+      end
+      @post = Post.find(req.params['id'])
+      if @post
+        # Handle Cloudinary Upload for Update
+        if req.params['remove_thumbnail'] == '1'
+          if @post.thumbnail_public_id
+            begin
+              Cloudinary.uploader.destroy(@post.thumbnail_public_id)
+            rescue => e
+              puts "Cloudinary Destroy Error: #{e.message}"
+            end
+          end
+          @post.thumbnail_url = nil
+          @post.thumbnail_public_id = nil
+        end
+
+        if req.params['thumbnail'] && req.params['thumbnail'][:tempfile]
+          begin
+            # Delete old image if it exists
+            if @post.thumbnail_public_id
+              Cloudinary.uploader.destroy(@post.thumbnail_public_id)
+            end
+            
+            # Upload new image
+            upload = Cloudinary::Uploader.upload(req.params['thumbnail'][:tempfile].path)
+            @post.thumbnail_url = upload['secure_url']
+            @post.thumbnail_public_id = upload['public_id']
+          rescue => e
+            puts "Cloudinary Upload/Destroy Error: #{e.message}"
+          end
+        end
+
+        @post.title = req.params['title']
+        @post.content = req.params['content']
+        @post.category_id = req.params['category_id']
+        @post.save
+        req.session['flash_message'] = "Post berhasil diperbarui!"
+      end
+      res.redirect '/admin/dashboard'
+    end
+
+    post '/posts/:id/delete' do |req, res|
+      unless req.session['user_id']
+        next res.redirect('/admin/login')
+      end
+      @post = Post.find(req.params['id'])
+      if @post
+        # Delete from Cloudinary if image exists
+        if @post.thumbnail_public_id
+          begin
+            Cloudinary.uploader.destroy(@post.thumbnail_public_id)
+          rescue => e
+            puts "Cloudinary Destroy Error: #{e.message}"
+          end
+        end
+
+        @post.destroy
+        req.session['flash_message'] = "Post telah dihapus (beserta gambar di Cloudinary)."
+      end
+      res.redirect '/admin/dashboard'
+    end
+
+    # --- Comment Moderation ---
+
+    get '/comments' do |req, res|
+      unless req.session['user_id']
+        next res.redirect('/admin/login')
+      end
+      @flash_message = req.session.delete('flash_message')
+      @comments = Comment.all_with_posts
+      res.render 'admin/comments', comments: @comments, title: "Moderasi Komentar", req: req, session: req.session, flash_message: @flash_message
+    end
+
+    post '/comments/:id/approve' do |req, res|
+      unless req.session['user_id']
+        next res.redirect('/admin/login')
+      end
+      @comment = Comment.find(req.params['id'])
+      if @comment
+        @comment.approve
+        req.session['flash_message'] = "Komentar berhasil disetujui!"
+      end
+      res.redirect '/admin/comments'
+    end
+
+    post '/comments/:id/delete' do |req, res|
+      unless req.session['user_id']
+        next res.redirect('/admin/login')
+      end
+      @comment = Comment.find(req.params['id'])
+      if @comment
+        @comment.destroy
+        req.session['flash_message'] = "Komentar telah dihapus."
+      end
+      res.redirect '/admin/comments'
+    end
+
+    # --- Category Management ---
+
+    get '/categories' do |req, res|
+      unless req.session['user_id']
+        next res.redirect('/admin/login')
+      end
+      @flash_message = req.session.delete('flash_message')
+      @categories = Category.all
+      res.render 'admin/categories', categories: @categories, title: "Manajemen Kategori", req: req, session: req.session, flash_message: @flash_message
+    end
+
+    post '/categories' do |req, res|
+      unless req.session['user_id']
+        next res.redirect('/admin/login')
+      end
+      
+      if req.params['name'] && !req.params['name'].empty?
+        category = Category.new('name' => req.params['name'])
+        category.save
+        req.session['flash_message'] = "Kategori '#{category.name}' berhasil ditambahkan!"
+      end
+      res.redirect '/admin/categories'
+    end
+
+    post '/categories/:id' do |req, res|
+      unless req.session['user_id']
+        next res.redirect('/admin/login')
+      end
+
+      category = Category.find(req.params['id'])
+      if category && req.params['name'] && !req.params['name'].empty?
+        category.name = req.params['name']
+        category.save
+        req.session['flash_message'] = "Kategori berhasil diperbarui."
+      end
+      res.redirect '/admin/categories'
+    end
+
+    post '/categories/:id/delete' do |req, res|
+      unless req.session['user_id']
+        next res.redirect('/admin/login')
+      end
+
+      category = Category.find(req.params['id'])
+      if category
+        # Optional: Check if any post is using this category
+        # For now, let's just delete
+        category.destroy
+        req.session['flash_message'] = "Kategori telah dihapus."
+      end
+      res.redirect '/admin/categories'
+    end
+
+    # --- Admin Settings ---
+
+    get '/settings' do |req, res|
+      unless req.session['user_id']
+        next res.redirect('/admin/login')
+      end
+      @flash_message = req.session.delete('flash_message')
+      @user = User.find(req.session['user_id'])
+      res.render 'admin/settings', user: @user, title: "Pengaturan Akun", req: req, session: req.session, flash_message: @flash_message
+    end
+
+    post '/settings' do |req, res|
+      unless req.session['user_id']
+        next res.redirect('/admin/login')
+      end
+      @user = User.find(req.session['user_id'])
+      
+      if req.params['password'] && !req.params['password'].empty?
+        if req.params['password'] == req.params['password_confirmation']
+          @user.username = req.params['username']
+          @user.password = req.params['password']
+          @user.save
+          req.session['flash_message'] = "Pengaturan akun berhasil diperbarui."
+        else
+          req.session['flash_message'] = "Konfirmasi password tidak cocok."
+        end
+      else
+        @user.username = req.params['username']
+        @user.save
+        req.session['flash_message'] = "Username berhasil diperbarui."
+      end
+      res.redirect '/admin/settings'
+    end
+  end
+end
+
+run router

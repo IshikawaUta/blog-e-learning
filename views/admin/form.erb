@@ -1,0 +1,110 @@
+<div class="max-w-4xl mx-auto py-12">
+    <div class="glass p-12 rounded-[3.5rem] shadow-xl">
+        <header class="mb-12 border-b border-white border-opacity-30 pb-10 flex justify-between items-center">
+            <div>
+                <h1 class="text-4xl font-extrabold text-blue-900 mb-2 tracking-tight">
+                    <%= @post.id ? "Edit Post" : "Buat Baru" %>
+                </h1>
+                <p class="text-slate-500">Sesuaikan konten e-learning Anda dengan data terbaru.</p>
+            </div>
+            <a href="/admin/dashboard" class="text-sm font-bold text-slate-500 hover:text-blue-600 flex items-center transition">
+                <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path></svg>
+                Kembali
+            </a>
+        </header>
+
+        <form action="<%= @post.id ? "/admin/posts/#{@post.id}" : "/admin/posts" %>" method="POST" enctype="multipart/form-data" class="space-y-8">
+            <%= csrf_tag %>
+            <% if @post.thumbnail_url %>
+                <div class="mb-6">
+                    <label class="block text-sm font-bold text-slate-700 mb-3 px-1 uppercase tracking-wider">Thumbnail Saat Ini</label>
+                    <div class="relative w-64 h-40 rounded-3xl overflow-hidden glass shadow-inner border border-white border-opacity-40">
+                        <img src="<%= @post.thumbnail_url %>" alt="Thumbnail" class="w-full h-full object-cover">
+                    </div>
+                    <div class="flex items-center gap-4 mt-4 px-1">
+                        <label class="relative inline-flex items-center cursor-pointer">
+                            <input type="checkbox" name="remove_thumbnail" value="1" class="sr-only peer">
+                            <div class="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-red-500"></div>
+                            <span class="ml-3 text-sm font-bold text-red-500 uppercase tracking-widest">Hapus Gambar</span>
+                        </label>
+                    </div>
+                </div>
+            <% end %>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                <div>
+                    <label for="category_id" class="block text-sm font-bold text-slate-700 mb-3 px-1 uppercase tracking-wider">Kategori</label>
+                    <select name="category_id" id="category_id"
+                        class="w-full px-6 py-4 rounded-[2rem] bg-white bg-opacity-50 border border-slate-200 focus:border-blue-500 transition duration-300 outline-none appearance-none cursor-pointer">
+                        <option value="">Pilih Kategori...</option>
+                        <% @categories.each do |cat| %>
+                            <option value="<%= cat.id %>" <%= "selected" if @post.category_id.to_i == cat.id %>>
+                                <%= cat.name %>
+                            </option>
+                        <% end %>
+                    </select>
+                </div>
+                <div>
+                    <label for="thumbnail" class="block text-sm font-bold text-slate-700 mb-3 px-1 uppercase tracking-wider">
+                        <%= @post.thumbnail_url ? "Ganti Thumbnail" : "Upload Thumbnail" %>
+                    </label>
+                    <input type="file" name="thumbnail" id="thumbnail" accept="image/*"
+                        class="w-full px-6 py-4 rounded-[2rem] bg-white bg-opacity-50 border border-dashed border-slate-300 focus:border-blue-500 transition duration-300 outline-none text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100">
+                </div>
+            </div>
+
+            <div>
+                <label for="title" class="block text-sm font-bold text-slate-700 mb-3 px-1 uppercase tracking-wider">Judul Post</label>
+                <input type="text" name="title" id="title" required value="<%= @post.title %>"
+                    placeholder="Masukkan judul yang menarik..."
+                    class="w-full px-6 py-5 rounded-3xl bg-white bg-opacity-50 border border-slate-200 focus:border-blue-500 focus:bg-white focus:ring-8 focus:ring-blue-50 transition duration-300 outline-none text-xl font-bold">
+            </div>
+
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                <div>
+                    <label for="content" class="block text-sm font-bold text-slate-700 mb-3 px-1 uppercase tracking-wider">Isi Materi (Markdown)</label>
+                    <textarea name="content" id="content" required rows="15"
+                        placeholder="Tuliskan pengetahuan berharga Anda di sini..."
+                        class="w-full px-6 py-5 rounded-[2rem] bg-white bg-opacity-50 border border-slate-200 focus:border-blue-500 focus:bg-white focus:ring-8 focus:ring-blue-50 transition duration-300 outline-none leading-relaxed text-slate-700 font-mono text-sm"><%= @post.content %></textarea>
+                </div>
+                <div>
+                    <label class="block text-sm font-bold text-blue-600 mb-3 px-1 uppercase tracking-widest">Live Preview</label>
+                    <div id="markdown-preview" class="w-full h-[36rem] px-6 py-5 rounded-[2rem] bg-white bg-opacity-30 border border-white border-opacity-40 overflow-y-auto prose prose-sm prose-blue max-w-none">
+                        <!-- Preview will appear here -->
+                        <p class="text-slate-400 italic">Mulai mengetik untuk melihat pratinjau...</p>
+                    </div>
+                </div>
+            </div>
+
+            <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+            <script>
+                const textarea = document.getElementById('content');
+                const preview = document.getElementById('markdown-preview');
+                
+                function updatePreview() {
+                    const text = textarea.value;
+                    if (text.trim() === '') {
+                        preview.innerHTML = '<p class="text-slate-400 italic">Mulai mengetik untuk melihat pratinjau...</p>';
+                        return;
+                    }
+                    preview.innerHTML = marked.parse(text);
+                }
+                
+                textarea.addEventListener('input', updatePreview);
+                // Initial load
+                if (textarea.value) updatePreview();
+            </script>
+
+            <div class="flex gap-4 pt-4">
+                <button type="submit" 
+                    class="flex-grow py-5 rounded-[2rem] bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-black text-xl hover:shadow-2xl hover:scale-[1.03] transform transition active:scale-95 shadow-lg">
+                    <%= @post.id ? "Update Post" : "Publikasikan" %>
+                </button>
+                <a href="/admin/dashboard" 
+                    class="px-10 py-5 rounded-[2rem] bg-slate-100 bg-opacity-60 text-slate-600 font-bold text-xl hover:bg-slate-200 transition text-center flex items-center">
+                    Batal
+                </a>
+            </div>
+        </form>
+    </div>
+</div>

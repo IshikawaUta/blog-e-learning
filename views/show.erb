@@ -1,0 +1,102 @@
+<article class="max-w-4xl mx-auto py-16">
+    <div class="glass p-12 rounded-[3.5rem] shadow-xl">
+        <header class="mb-12 border-b border-white border-opacity-30 pb-10">
+            <div class="flex flex-wrap items-center gap-4 mb-6">
+                <a href="/" class="btn-glass p-2 px-4 rounded-full inline-flex items-center text-blue-600 text-sm font-bold">
+                    <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path></svg>
+                    Beranda
+                </a>
+                <span class="px-4 py-2 rounded-full bg-blue-50 text-blue-600 text-[10px] font-black uppercase tracking-widest">
+                    <%= @post.category_id ? Category.find(@post.category_id)&.name : "Uncategorized" %>
+                </span>
+                <span class="px-4 py-2 rounded-full glass text-slate-400 text-[10px] font-bold uppercase tracking-widest flex items-center">
+                    <svg class="w-3 h-3 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                    <%= reading_time(@post.content) %> Min Read
+                </span>
+            </div>
+            <h1 class="text-5xl font-black text-slate-900 leading-[1.2] mb-8">
+                <%= @post.title %>
+            </h1>
+            <div class="flex items-center gap-6">
+                <div class="w-12 h-12 rounded-full bg-gradient-to-br from-blue-400 to-indigo-500 flex items-center justify-center text-white font-bold shadow-lg shadow-blue-100">
+                    <%= @post.id ? "A" : "?" %>
+                </div>
+                <div>
+                    <h4 class="font-bold text-slate-800">Admin E-Learning</h4>
+                    <p class="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1">
+                        <%= @post.created_at.strftime("%B %d, %Y") if @post.created_at %>
+                    </p>
+                </div>
+            </div>
+        </header>
+
+        <% if @post.thumbnail_url %>
+            <div class="mb-12 h-[32rem] w-full rounded-[2.5rem] overflow-hidden shadow-2xl glass p-3">
+                <img src="<%= @post.thumbnail_url %>" alt="<%= @post.title %>" class="w-full h-full object-cover rounded-[2rem]">
+            </div>
+        <% end %>
+        
+        <div class="prose prose-lg prose-blue max-w-none px-4 prose-pre:bg-transparent prose-pre:p-0">
+            <%= markdown(@post.content) %>
+        </div>
+
+        <!-- Comments Section -->
+        <div class="mt-20 pt-12 border-t border-white border-opacity-30">
+            <h3 class="text-3xl font-black text-slate-900 mb-10 flex items-center gap-3">
+                <svg class="w-8 h-8 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"></path></svg>
+                Diskusi (<%= @comments.size %>)
+            </h3>
+
+            <!-- Comment Form -->
+            <div class="glass p-8 rounded-3xl mb-16">
+                <h4 class="text-xl font-bold text-slate-800 mb-6">Tinggalkan Komentar</h4>
+                <form action="/post/<%= @post.id %>/comments" method="POST" class="space-y-6">
+                    <%= csrf_tag %>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div>
+                            <label class="block text-sm font-bold text-slate-700 mb-2 ml-1">Nama Anda</label>
+                            <input type="text" name="name" required placeholder="Masukkan nama..." 
+                                class="w-full px-5 py-3 rounded-2xl bg-white bg-opacity-50 border-white border-opacity-30 focus:ring-4 focus:ring-blue-100 transition outline-none">
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-bold text-slate-700 mb-2 ml-1">Komentar</label>
+                        <textarea name="content" rows="4" required placeholder="Tuliskan pemikiran Anda..." 
+                            class="w-full px-5 py-3 rounded-2xl bg-white bg-opacity-50 border-white border-opacity-30 focus:ring-4 focus:ring-blue-100 transition outline-none resize-none"></textarea>
+                    </div>
+                    <button type="submit" class="px-8 py-4 bg-blue-600 text-white font-bold rounded-2xl hover:bg-blue-700 transition shadow-lg shadow-blue-200">
+                        Kirim Komentar
+                    </button>
+                </form>
+            </div>
+
+            <!-- Comments List -->
+            <div class="space-y-8">
+                <% if @comments.any? %>
+                    <% @comments.each do |comment| %>
+                        <div class="glass-card p-8 rounded-3xl">
+                            <div class="flex items-center gap-4 mb-4">
+                                <div class="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 font-bold">
+                                    <%= comment.name[0].upcase %>
+                                </div>
+                                <div>
+                                    <h5 class="font-bold text-slate-800"><%= h comment.name %></h5>
+                                    <p class="text-xs text-slate-400 uppercase tracking-widest">
+                                        <%= comment.created_at.strftime("%B %d, %Y") if comment.created_at %>
+                                    </p>
+                                </div>
+                            </div>
+                            <p class="text-slate-600 leading-relaxed pl-1">
+                                <%= h comment.content %>
+                            </p>
+                        </div>
+                    <% end %>
+                <% else %>
+                    <div class="text-center py-12 glass rounded-3xl border-dashed border-2 border-blue-100">
+                        <p class="text-slate-400">Belum ada komentar. Jadilah yang pertama berdiskusi!</p>
+                    </div>
+                <% end %>
+            </div>
+        </div>
+    </div>
+</article>

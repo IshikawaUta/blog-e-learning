@@ -1,0 +1,129 @@
+<header class="text-center mb-16 py-12">
+    <h1 class="text-5xl font-extrabold text-blue-900 mb-4 tracking-tight">Explore Knowledge</h1>
+    <p class="text-xl text-slate-600 max-w-2xl mx-auto mb-10">Selamat datang di platform e-learning masa depan. Temukan wawasan baru melalui artikel berkualitas kami.</p>
+    
+    <form action="/" method="GET" class="relative max-w-xl mx-auto">
+        <input type="text" name="q" value="<%= @search_query %>" placeholder="Cari materi e-learning..." 
+            class="w-full px-8 py-5 rounded-full glass bg-white focus:bg-white border-none focus:ring-8 focus:ring-blue-50 transition outline-none text-lg shadow-lg">
+        <div class="absolute right-3 top-2 bottom-2 flex gap-2">
+            <% if @search_query && !@search_query.empty? %>
+                <a href="/reset-search" class="px-6 rounded-full bg-slate-100 text-slate-500 font-bold hover:bg-slate-200 transition flex items-center">
+                    Reset
+                </a>
+            <% end %>
+            <button type="submit" class="px-6 rounded-full bg-blue-600 text-white font-bold hover:bg-blue-700 transition">
+                Cari
+            </button>
+        </div>
+    </form>
+</header>
+
+<div class="mb-16">
+    <div class="flex flex-wrap justify-center gap-3">
+        <a href="/" class="px-6 py-3 rounded-full font-bold transition <%= @category_id.nil? || @category_id.empty? ? 'bg-blue-600 text-white shadow-lg shadow-blue-100' : 'glass text-slate-500 hover:bg-white' %>">
+            Semua
+        </a>
+        <% @categories.each do |cat| %>
+            <a href="/?category_id=<%= cat.id %><%= "&q=#{@search_query}" if @search_query && !@search_query.empty? %>" 
+               class="px-6 py-3 rounded-full font-bold transition <%= @category_id.to_i == cat.id ? 'bg-blue-600 text-white shadow-lg shadow-blue-100' : 'glass text-slate-500 hover:bg-white' %>">
+                <%= cat.name %>
+            </a>
+        <% end %>
+    </div>
+</div>
+
+<% if @search_query && !@search_query.empty? %>
+    <div class="mb-10 text-center">
+        <h3 class="text-2xl font-bold text-slate-800">
+            <%= @total_posts %> hasil untuk "<span class="text-blue-600"><%= @search_query %></span>"
+        </h3>
+        <% if @total_posts == 0 %>
+            <div class="mt-12 p-12 glass rounded-[3rem] border-dashed border-2 border-blue-200">
+                <div class="bg-blue-50 w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6">
+                    <svg class="w-10 h-10 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                </div>
+                <p class="text-xl text-slate-600 font-medium">Maaf, kami tidak menemukan materi dengan kata kunci tersebut.</p>
+                <p class="text-slate-400 mt-2">Coba gunakan kata kunci yang lebih umum atau periksa ejaan Anda.</p>
+                <a href="/reset-search" class="mt-8 inline-block px-8 py-4 rounded-2xl bg-blue-600 text-white font-bold hover:bg-blue-700 transition shadow-lg shadow-blue-200">
+                    Lihat Semua Materi
+                </a>
+            </div>
+        <% end %>
+    </div>
+<% end %>
+
+<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-12 py-10">
+    <% if @posts.any? %>
+        <% @posts.each do |post| %>
+            <div class="glass-card group rounded-[2.5rem] overflow-hidden flex flex-col h-full hover:scale-[1.03] transform transition duration-500">
+                <% if post.thumbnail_url %>
+                    <div class="h-56 w-full overflow-hidden">
+                        <img src="<%= post.thumbnail_url %>" alt="<%= post.title %>" class="w-full h-full object-cover group-hover:scale-110 transition duration-700">
+                    </div>
+                <% end %>
+                <div class="p-8 flex flex-col flex-grow">
+                    <div class="mb-5 flex justify-between items-center">
+                        <span class="px-3 py-1 rounded-full text-[10px] font-black bg-blue-100 text-blue-600 uppercase tracking-widest">
+                            <%= post.category_name || "E-Learning" %>
+                        </span>
+                        <span class="text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center">
+                            <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                            <%= reading_time(post.content) %> Min Read
+                        </span>
+                    </div>
+                <h2 class="text-2xl font-bold mb-4 text-slate-800 leading-tight">
+                    <%= post.title %>
+                </h2>
+                <div class="prose prose-sm prose-blue mb-6 flex-grow line-clamp-3 overflow-hidden text-slate-600">
+                        <%= (post.content || "").gsub(/[#*`\n]/, ' ').strip.slice(0, 150) %>...
+                </div>
+                <div class="flex items-center justify-between mt-auto">
+                    <span class="text-sm text-slate-400">
+                        <%= post.created_at.strftime("%B %d, %Y") if post.created_at %>
+                    </span>
+                    <a href="/post/<%= post.id %>" class="text-blue-600 font-semibold hover:underline flex items-center">
+                        Read More 
+                        <svg class="w-4 h-4 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"></path></svg>
+                    </a>
+                </div>
+            </div>
+        </div>
+    <% end %>
+    <% else %>
+        <div class="col-span-full text-center py-20 glass rounded-3xl">
+            <p class="text-slate-500 text-lg">Belum ada postingan saat ini. Silakan kembali lagi nanti!</p>
+        </div>
+    <% end %>
+</div>
+
+<% if @total_pages > 1 %>
+    <div class="mt-16 flex justify-center items-center gap-4">
+        <% if @current_page > 1 %>
+            <a href="/?page=<%= @current_page - 1 %><%= "&q=#{@search_query}" if @search_query && !@search_query.empty? %><%= "&category_id=#{@category_id}" if @category_id %>" 
+               class="px-6 py-3 rounded-2xl glass hover:bg-white transition font-bold text-blue-600 flex items-center shadow-sm">
+               &larr; Prev
+            </a>
+        <% else %>
+            <span class="px-6 py-3 rounded-2xl glass opacity-40 cursor-not-allowed font-bold text-slate-400">
+                &larr; Prev
+            </span>
+        <% end %>
+
+        <div class="flex items-center gap-2 px-6 py-3 rounded-2xl glass font-bold text-slate-500">
+            <span class="text-blue-600"><%= @current_page %></span>
+            <span class="opacity-30">/</span>
+            <span><%= @total_pages %></span>
+        </div>
+
+        <% if @current_page < @total_pages %>
+            <a href="/?page=<%= @current_page + 1 %><%= "&q=#{@search_query}" if @search_query && !@search_query.empty? %><%= "&category_id=#{@category_id}" if @category_id %>" 
+               class="px-6 py-3 rounded-2xl glass hover:bg-white transition font-bold text-blue-600 flex items-center shadow-sm">
+               Next &rarr;
+            </a>
+        <% else %>
+            <span class="px-6 py-3 rounded-2xl glass opacity-40 cursor-not-allowed font-bold text-slate-400">
+                Next &rarr;
+            </span>
+        <% end %>
+    </div>
+<% end %>

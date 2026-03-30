@@ -1,0 +1,76 @@
+<div class="py-12">
+    <header class="flex flex-col md:flex-row justify-between items-start md:items-center mb-12 border-b border-white border-opacity-30 pb-10">
+        <div>
+            <h1 class="text-4xl font-extrabold text-blue-900 mb-2 tracking-tight">Moderasi Komentar</h1>
+            <p class="text-slate-500">Setujui atau hapus komentar dari pembaca blog Anda.</p>
+        </div>
+        <div class="flex gap-4 mt-4 md:mt-0">
+            <a href="/admin/dashboard" class="px-8 py-4 rounded-2xl glass text-slate-600 font-bold text-lg hover:bg-white transition flex items-center">
+                <svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path></svg>
+                Dashboard
+            </a>
+        </div>
+    </header>
+
+    <div class="glass rounded-[2rem] overflow-hidden shadow-xl border border-white border-opacity-30">
+        <table class="w-full text-left">
+            <thead class="bg-blue-600 bg-opacity-5 border-b border-white border-opacity-50">
+                <tr>
+                    <th class="px-8 py-6 text-sm font-bold text-blue-900 uppercase tracking-widest">Pengirim & Materi</th>
+                    <th class="px-8 py-6 text-sm font-bold text-blue-900 uppercase tracking-widest">Komentar</th>
+                    <th class="px-8 py-6 text-sm font-bold text-blue-900 uppercase tracking-widest">Status</th>
+                    <th class="px-8 py-6 text-sm font-bold text-blue-900 uppercase tracking-widest text-right">Aksi</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-white divide-opacity-30">
+                <% if @comments && @comments.any? %>
+                    <% @comments.each do |comment| %>
+                        <tr class="hover:bg-white hover:bg-opacity-40 transition">
+                            <td class="px-8 py-8">
+                                <span class="font-bold text-slate-800 block"><%= h comment['name'] %></span>
+                                <span class="text-xs text-blue-500 font-medium uppercase tracking-tight">Post: <%= h comment['post_title'] %></span>
+                            </td>
+                            <td class="px-8 py-8 text-slate-600 text-sm italic">
+                                "<%= h comment['content'] %>"
+                                <div class="text-[10px] text-slate-400 mt-1 uppercase">
+                                    <%= Time.parse(comment['created_at'].to_s).strftime("%d %b %Y, %H:%M") %>
+                                </div>
+                            </td>
+                            <td class="px-8 py-8">
+                                <% if comment['is_approved'] == 1 %>
+                                    <span class="px-3 py-1 rounded-full bg-green-100 text-green-700 text-[10px] font-black uppercase tracking-widest">Publik</span>
+                                <% else %>
+                                    <span class="px-3 py-1 rounded-full bg-amber-100 text-amber-700 text-[10px] font-black uppercase tracking-widest">Menunggu</span>
+                                <% if comment['is_approved'] == 1 %>
+                                <% end %>
+                                <% end %>
+                            </td>
+                            <td class="px-8 py-8 text-right flex gap-2 justify-end">
+                                <% if comment['is_approved'] == 0 %>
+                                    <form action="/admin/comments/<%= comment['id'] %>/approve" method="POST">
+                                        <%= csrf_tag %>
+                                        <button type="submit" class="px-4 py-2 rounded-xl bg-blue-600 text-white font-bold text-xs hover:bg-blue-700 transition shadow-md">
+                                            Setujui
+                                        </button>
+                                    </form>
+                                <% end %>
+                                <form action="/admin/comments/<%= comment['id'] %>/delete" method="POST" onsubmit="return confirm('Hapus komentar ini permamen?')">
+                                    <%= csrf_tag %>
+                                    <button type="submit" class="px-4 py-2 rounded-xl bg-red-100 text-red-600 font-bold text-xs hover:bg-red-200 transition border border-red-200">
+                                        Hapus
+                                    </button>
+                                </form>
+                            </td>
+                        </tr>
+                    <% end %>
+                <% else %>
+                    <tr>
+                        <td colspan="4" class="px-8 py-20 text-center text-slate-400 italic">
+                            Belum ada komentar untuk dimoderasi.
+                        </td>
+                    </tr>
+                <% end %>
+            </tbody>
+        </table>
+    </div>
+</div>
