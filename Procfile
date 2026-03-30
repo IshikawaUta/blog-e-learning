@@ -1,1 +1,1 @@
-web: ekscentup -p $PORT -e production config.eks
+web: bundle exec ekscentup -p 3000 -e production config.eks

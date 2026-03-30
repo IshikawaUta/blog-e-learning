@@ -11,6 +11,7 @@ class Database
   def self.client
     @client ||= Mysql2::Client.new(
       host:     ENV['DB_HOST'] || 'localhost',
+      port:     (ENV['DB_PORT'] || 3306).to_i,
       username: ENV['DB_USER'] || 'root',
       password: ENV['DB_PASS'] || '',
       database: ENV['DB_NAME'] || 'elearning_db'
@@ -19,6 +20,7 @@ class Database
     # Fallback to connect without database if it doesnt exist yet
     @client = Mysql2::Client.new(
       host:     ENV['DB_HOST'] || 'localhost',
+      port:     (ENV['DB_PORT'] || 3306).to_i,
       username: ENV['DB_USER'] || 'root',
       password: ENV['DB_PASS'] || ''
     )
@@ -37,6 +39,7 @@ class Database
       db_name = ENV['DB_NAME'] || 'elearning_db'
       c = Mysql2::Client.new(
         host:     ENV['DB_HOST'] || 'localhost',
+        port:     (ENV['DB_PORT'] || 3306).to_i,
         username: ENV['DB_USER'] || 'root',
         password: ENV['DB_PASS'] || ''
       )
@@ -48,6 +51,7 @@ class Database
 
     db_client = Mysql2::Client.new(
       host:     ENV['DB_HOST'] || 'localhost',
+      port:     (ENV['DB_PORT'] || 3306).to_i,
       username: ENV['DB_USER'] || 'root',
       password: ENV['DB_PASS'] || '',
       database: ENV['DB_NAME'] || 'elearning_db'
